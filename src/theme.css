@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+:root { --ink: #1e293b; --muted: #64748b; --line: #e8edf3; --brand: #6366f1; }
+body { font-family: 'Inter', system-ui, sans-serif; background: #f7f9fc; color: var(--ink); }
+.app-nav { background: #fff; border-bottom: 1px solid var(--line); }
+.app-nav .navbar-brand { color: var(--ink); }
+.brand-mark { width: 34px; height: 34px; border-radius: 10px; background: #eef2ff; color: var(--brand); display: inline-flex; align-items: center; justify-content: center; }
+.card { border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.shadow-sm { box-shadow: 0 2px 10px rgba(15,23,42,.04) !important; }
+.btn-primary { background: var(--brand); border-color: var(--brand); }
+.btn-primary:hover, .btn-primary:focus { background: #4f46e5; border-color: #4f46e5; }
+.page-title { font-weight: 700; letter-spacing: -.02em; }
+.section-title { font-weight: 600; font-size: 1rem; margin-bottom: .75rem; color: var(--ink); }
+
+/* Stat tiles: original size, light colours */
+.stat { display: flex; align-items: center; gap: 14px; background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 18px; height: 100%; box-shadow: 0 2px 10px rgba(15,23,42,.04); }
+.stat .ico { flex: none; width: 46px; height: 46px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 22px; background: var(--tint); color: var(--fg); }
+.stat .val { font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
+.stat .lbl { color: var(--muted); font-size: .85rem; font-weight: 500; margin-top: 2px; }
+.t-indigo { --tint: #eef2ff; --fg: #6366f1; } .t-green { --tint: #ecfdf5; --fg: #10b981; }
+.t-sky { --tint: #f0f9ff; --fg: #0ea5e9; }    .t-violet { --tint: #f5f3ff; --fg: #8b5cf6; }
+.t-teal { --tint: #f0fdfa; --fg: #14b8a6; }   .t-amber { --tint: #fffbeb; --fg: #f59e0b; }
+.t-rose { --tint: #fff1f2; --fg: #f43f5e; }
+
+.chart-card { height: 100%; }
+.chart-card .card-body { padding: 12px 14px; }
+
+/* Project cards: original size, light colours */
+.project-card { transition: transform .15s, border-color .15s, box-shadow .15s; }
+.project-card:hover { transform: translateY(-3px); border-color: #c7d2fe; box-shadow: 0 10px 24px rgba(99,102,241,.12) !important; }
+.mini-stat { background: #f8fafc; border-radius: 10px; padding: 8px 10px; }
+.badge-soft-success { background: #ecfdf5; color: #059669; font-weight: 500; }
+.badge-soft-secondary { background: #f1f5f9; color: #64748b; font-weight: 500; }
