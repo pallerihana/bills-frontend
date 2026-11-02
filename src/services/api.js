@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'https://bills-backend-ir36.onrender.com/api',
-  timeout: 30000,
+ 
 });
 
 // Attach JWT authentication to API requests
