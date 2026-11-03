@@ -2,21 +2,18 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'https://bills-backend-ir36.onrender.com/api',
- 
 });
 
 // Attach JWT authentication to API requests
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
 
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    return config;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
-);
+
+  return config;
+});
 
 // Handle authentication errors
 api.interceptors.response.use(
@@ -50,10 +47,18 @@ export const fmtDate = (date) =>
 export const inr = (amount) =>
   '₹' + Number(amount || 0).toLocaleString('en-IN');
 
-// Open or download a file using authenticated API access
-export async function openFile(url, filename) {
+// Open or download a file using authenticated API access.
+// onProgress (optional) is called as bytes arrive: onProgress({ pct, loaded, total })
+//   pct is 0-100, or null when the server did not send Content-Length.
+export async function openFile(url, filename, onProgress) {
   const response = await api.get(url, {
     responseType: 'blob',
+    onDownloadProgress: (e) => {
+      if (!onProgress) return;
+      const total = e.total || 0;
+      const pct = total ? Math.min(100, Math.round((e.loaded * 100) / total)) : null;
+      onProgress({ pct, loaded: e.loaded, total });
+    },
   });
 
   const objectUrl = URL.createObjectURL(response.data);
@@ -95,7 +100,6 @@ export async function blobError(error) {
 
 // Fetch one proof as a Blob for previewing inside a modal.
 // Proof index starts at 0.
-// The existing backend endpoint and authentication are preserved.
 export const viewProof = async (projectId, expenseId, index = 0) => {
   try {
     const response = await api.get(
@@ -123,11 +127,7 @@ export const proofList = (bill) => {
     }));
   }
 
-  if (
-    bill.cloudinaryPublicId ||
-    bill.proofFile ||
-    bill.proofOriginalName
-  ) {
+  if (bill.cloudinaryPublicId || bill.proofFile || bill.proofOriginalName) {
     return [
       {
         id: 'legacy',
