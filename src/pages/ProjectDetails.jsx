@@ -25,6 +25,8 @@ export default function ProjectDetails() {
   const [d, setD] = useState(null), [msg, setMsg] = useState(null);
   const [showPreview, setShowPreview] = useState(false), [selId, setSelId] = useState(null), [f, setF] = useState(EMPTY);
   const [edit, setEdit] = useState(null), [cb, setCb] = useState(null), [rej, setRej] = useState(null), [picked, setPicked] = useState([]);
+  // Download progress: { key, label, phase: 'preparing' | 'downloading', pct, loaded } or null
+  const [dl, setDl] = useState(null);
 
   const load = () => api.get(`/projects/${id}`).then(r => setD(r.data)).catch(e => setMsg({ t: 'danger', m: errMsg(e) }));
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [id]);
@@ -63,6 +65,25 @@ export default function ProjectDetails() {
   const delCompany = x => window.confirm(`Delete company bill ${x.billLabel} (${inr(x.amount)})?`)
     && run(() => api.delete(`/projects/${id}/company-bills/${x._id}`), () => 'Company bill deleted');
 
+  // Download a file and show progress. Phase 1 "preparing" = server is building the file
+  // (no bytes yet). Phase 2 "downloading" = bytes arriving, with 0-100% when the size is known.
+  const downloadWithProgress = (key, label, path, filename, okMsg) => {
+    if (dl) return; // ignore clicks while a download is running
+    setDl({ key, label, phase: 'preparing', pct: 0, loaded: 0 });
+    return run(
+      async () => {
+        try {
+          await openFile(path, filename, ({ pct, loaded }) =>
+            setDl({ key, label, phase: 'downloading', pct, loaded })
+          );
+        } finally {
+          setDl(null);
+        }
+      },
+      () => okMsg
+    );
+  };
+
   // Common link for the whole project, created by the server (shown when the page first loads)
   const formLink = d.shareUrl;
 
@@ -93,43 +114,40 @@ export default function ProjectDetails() {
     }
   };
 
+  const openWhatsApp = () => {
+    const message = [
+      `*Project: ${p.collegeName}*`,
+      `*PROJECT EXPENSES & BILLS PORTAL*`,
+      ``,
+      `👋 Hello Team!`,
+      ``,
+      `Please submit your project-related expenses and bills using the link below.`,
+      ``,
+      `*PROJECT DETAILS*`,
+      `> Start Date: ${fmtDate(p.startDate)}`,
+      `> End Date: ${fmtEnd(p.endDate)}`,
+      `> Submission Deadline: ${p.formEndDate ? fmtDate(p.formEndDate) : 'Not set'}`,
+      ``,
+      `*SUBMISSION LINK*`,
+      formLink,
+      ``,
+      `*HOW TO SUBMIT*`,
+      `> Open link → Select name → Enter ID & email → Upload bills.`,
+      ``,
+      `⚠️ *IMPORTANT:* Submit before deadline with clear proofs. No bills? Select No Bill.`,
+      ``,
+      `🙏 Thank you for your cooperation!`,
+    ].join('\n');
 
- 
-const openWhatsApp = () => {
-  const message = [
-    `*Project: ${p.collegeName}*`,
-    `*PROJECT EXPENSES & BILLS PORTAL*`,
-    ``,
-    `👋 Hello Team!`,
-    ``,
-    `Please submit your project-related expenses and bills using the link below.`,
-    ``,
-    `*PROJECT DETAILS*`,
-  
-    `> Start Date: ${fmtDate(p.startDate)}`,
-    `> End Date: ${fmtEnd(p.endDate)}`,
-    `> Submission Deadline: ${
-      p.formEndDate ? fmtDate(p.formEndDate) : 'Not set'
-    }`,
-    ``,
-    `*SUBMISSION LINK*`,
-    formLink,
-    ``,
-    `*HOW TO SUBMIT*`,
-    `> Open link → Select name → Enter ID & email → Upload bills.`,
-    ``,
-    `⚠️ *IMPORTANT:* Submit before deadline with clear proofs. No bills? Select No Bill.`,
-    ``,
-    `🙏 Thank you for your cooperation!`,
-  ].join('\n');
+    window.open(
+      `whatsapp://send?text=${encodeURIComponent(message)}`,
+      '_blank',
+      'noopener,noreferrer'
+    );
+  };
 
-  window.open(
-    `whatsapp://send?text=${encodeURIComponent(message)}`,
-    '_blank',
-    'noopener,noreferrer'
-  );
-};
-
+  // Small helper for the download progress bar
+  const indeterminate = dl && (dl.phase === 'preparing' || dl.pct == null);
 
   return (<>
     <div className="card shadow-sm mb-3"><div className="card-body">
@@ -143,7 +161,11 @@ const openWhatsApp = () => {
         </div>
       </div>
 
-      <div className="row small text-muted"><div className="col-sm-4">Start Date: {fmtDate(p.startDate)}</div><div className="col-sm-4"></div>End Date: {fmtEnd(p.endDate)}<div className="col-sm-4">Subjects: <SubjectTags project={p} /></div></div>
+      <div className="row small text-muted">
+        <div className="col-sm-4">Start Date: {fmtDate(p.startDate)}</div>
+        <div className="col-sm-4">End Date: {fmtEnd(p.endDate)}</div>
+        <div className="col-sm-4">Subjects: <SubjectTags project={p} /></div>
+      </div>
 
       {p.formCreated && p.formEndDate && <div className="small mt-2">Form Submission Last Date: <strong>{fmtDate(p.formEndDate)}</strong>{' '}
         {fill.expired ? <span className="badge bg-danger">Submissions closed</span>
@@ -182,203 +204,249 @@ const openWhatsApp = () => {
         onRemind={e => run(() => api.post(`/projects/${id}/employees/${e._id}/remind`), () => `Reminder sent to ${e.name || e.email}`)} />
 
       <div className="d-flex flex-wrap align-items-center gap-2">
-  <button
-    type="button"
-    className="btn btn-primary d-inline-flex align-items-center gap-2"
-    disabled={!s.pending || !p.formCreated || fill.expired || locked}
-    onClick={() =>
-      run(
-        () => api.post(`/projects/${id}/send`),
-        r =>
-          `Form sent to ${r.data.sent} employee(s)${
-            r.data.failed ? `, ${r.data.failed} failed` : ''
-          }`
-      )
-    }
-  >
-    <FiMail size={16} />
-    <span>Send Mail</span>
-  </button>
+        <button
+          type="button"
+          className="btn btn-primary d-inline-flex align-items-center gap-2"
+          disabled={!s.pending || !p.formCreated || fill.expired || locked}
+          onClick={() =>
+            run(
+              () => api.post(`/projects/${id}/send`),
+              r =>
+                `Form sent to ${r.data.sent} employee(s)${
+                  r.data.failed ? `, ${r.data.failed} failed` : ''
+                }`
+            )
+          }
+        >
+          <FiMail size={16} />
+          <span>Send Mail</span>
+        </button>
 
-  <button
-    type="button"
-    className="btn btn-success d-inline-flex align-items-center gap-2"
-    disabled={!p.formCreated || !formLink}
-    onClick={openWhatsApp}
-    title="Open WhatsApp with project details and the form link"
-  >
-    <FaWhatsapp size={16} />
-    <span>WhatsApp</span>
-  </button>
+        <button
+          type="button"
+          className="btn btn-success d-inline-flex align-items-center gap-2"
+          disabled={!p.formCreated || !formLink}
+          onClick={openWhatsApp}
+          title="Open WhatsApp with project details and the form link"
+        >
+          <FaWhatsapp size={16} />
+          <span>WhatsApp</span>
+        </button>
 
-  <button
-    type="button"
-    className="btn btn-outline-primary d-inline-flex align-items-center gap-2"
-    disabled={!p.formCreated || !formLink}
-    onClick={copyFormLink}
-    title="Copy the employee expense form link"
-  >
-    <FiCopy size={16} />
-    <span>Copy Form Link</span>
-  </button>
+        <button
+          type="button"
+          className="btn btn-outline-primary d-inline-flex align-items-center gap-2"
+          disabled={!p.formCreated || !formLink}
+          onClick={copyFormLink}
+          title="Copy the employee expense form link"
+        >
+          <FiCopy size={16} />
+          <span>Copy Form Link</span>
+        </button>
 
-  {/* Information tooltip */}
-  <span
-    className="d-inline-flex align-items-center justify-content-center rounded-circle text-secondary"
-    title="Send Mail emails each employee their personal link, only to employees who have not responded. WhatsApp and Copy Form Link share one common link where employees select their name and confirm their Employee ID and registered email. The reminder button unlocks 2 days before the last date."
-    style={{
-      width: '28px',
-      height: '28px',
-      border: '1px solid #ced4da',
-      backgroundColor: '#f8f9fa',
-      cursor: 'help',
-      flexShrink: 0
-    }}
-    aria-label="Information about employee form links"
-    role="img"
-  >
-    <FiInfo size={16} />
-  </span>
-</div>
+        {/* Information tooltip */}
+        <span
+          className="d-inline-flex align-items-center justify-content-center rounded-circle text-secondary"
+          title="Send Mail emails each employee their personal link, only to employees who have not responded. WhatsApp and Copy Form Link share one common link where employees select their name and confirm their Employee ID and registered email. The reminder button unlocks 2 days before the last date."
+          style={{
+            width: '28px',
+            height: '28px',
+            border: '1px solid #ced4da',
+            backgroundColor: '#f8f9fa',
+            cursor: 'help',
+            flexShrink: 0
+          }}
+          aria-label="Information about employee form links"
+          role="img"
+        >
+          <FiInfo size={16} />
+        </span>
+      </div>
     </div></div>
 
-     <div className="card shadow-sm mb-3 border-0" style={{ borderRadius: '14px' }}>
-  <div className="card-body p-3">
-    <div className="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-      <h6 className="mb-0 fw-semibold">Submitted Expenses</h6>
+    <div className="card shadow-sm mb-3 border-0" style={{ borderRadius: '14px' }}>
+      <div className="card-body p-3">
+        <div className="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+          <h6 className="mb-0 fw-semibold">Submitted Expenses</h6>
 
-      <button
-        className="btn btn-outline-primary btn-sm"
-        onClick={() => setShowPreview(!showPreview)}
-      >
-        <FiUsers /> {showPreview ? 'Hide' : 'View'} Employee Submissions
-      </button>
-    </div>
-
-    {(() => {
-      const cards = [
-        { label: 'Total Employees', value: s.employees, bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8' },
-        { label: 'Submitted Employees', value: s.submitted, bg: '#ecfdf5', border: '#a7f3d0', color: '#047857' },
-        { label: 'No Bill', value: s.noBill, bg: '#f5f3ff', border: '#ddd6fe', color: '#6d28d9' },
-        { label: 'Pending', value: s.pending, bg: '#fffbeb', border: '#fde68a', color: '#b45309' },
-        { label: 'Total Bills Submitted', value: s.totalBills, bg: '#ecfeff', border: '#a5f3fc', color: '#0e7490' },
-        { label: 'Employee Bills Total', value: inr(s.totalAmount), bg: '#f0fdf4', border: '#bbf7d0', color: '#166534' },
-        { label: 'Company Bills Total', value: inr(s.companyTotal), bg: '#fff1f2', border: '#fecdd3', color: '#be123c' },
-        { label: 'Grand Total', value: inr(s.grandTotal), bg: '#f5f3ff', border: '#c4b5fd', color: '#5b21b6' },
-      ];
-
-      return (
-        <div className="row g-3">
-          {cards.map((card) => (
-            <div className="col-6 col-md-4 col-lg-3 col-xl-2" key={card.label}>
-              <div
-                className="h-100 p-3"
-                style={{
-                  background: card.bg,
-                  border: `1px solid ${card.border}`,
-                  borderRadius: '12px',
-                  transition: 'transform 0.2s ease',
-                }}
-              >
-                <div className="small mb-2" style={{ color: card.color }}>
-                  {card.label}
-                </div>
-                <div
-                  className="fs-5 fw-bold text-break"
-                  style={{ color: card.color, lineHeight: 1.3 }}
-                >
-                  {card.value}
-                </div>
-              </div>
-            </div>
-          ))}
+          <button
+            className="btn btn-outline-primary btn-sm"
+            onClick={() => setShowPreview(!showPreview)}
+          >
+            <FiUsers /> {showPreview ? 'Hide' : 'View'} Employee Submissions
+          </button>
         </div>
-      );
-    })()}
 
-    <div className="d-flex flex-wrap gap-3 mt-3 small align-items-center">
-      <span className="text-muted">Bill review:</span>
+        {(() => {
+          const cards = [
+            { label: 'Total Employees', value: s.employees, bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8' },
+            { label: 'Submitted Employees', value: s.submitted, bg: '#ecfdf5', border: '#a7f3d0', color: '#047857' },
+            { label: 'No Bill', value: s.noBill, bg: '#f5f3ff', border: '#ddd6fe', color: '#6d28d9' },
+            { label: 'Pending', value: s.pending, bg: '#fffbeb', border: '#fde68a', color: '#b45309' },
+            { label: 'Total Bills Submitted', value: s.totalBills, bg: '#ecfeff', border: '#a5f3fc', color: '#0e7490' },
+            { label: 'Employee Bills Total', value: inr(s.totalAmount), bg: '#f0fdf4', border: '#bbf7d0', color: '#166534' },
+            { label: 'Company Bills Total', value: inr(s.companyTotal), bg: '#fff1f2', border: '#fecdd3', color: '#be123c' },
+            { label: 'Grand Total', value: inr(s.grandTotal), bg: '#f5f3ff', border: '#c4b5fd', color: '#5b21b6' },
+          ];
 
-      {[
-        ['SUBMITTED', s.review.submitted],
-        ['UNDER_REVIEW', s.review.underReview],
-        ['APPROVED', s.review.approved],
-        ['REJECTED', s.review.rejected],
-        ['REIMBURSED', s.review.reimbursed],
-      ].map(([key, value]) => (
-        <span key={key}>
-          <StatusBadge s={key} /> {value}
-        </span>
-      ))}
-
-      {s.review.approved > 0 && (
-        <span className="text-muted">
-          · Awaiting reimbursement:{' '}
-          <strong className="text-dark">{inr(s.review.approvedAmount)}</strong>
-        </span>
-      )}
-    </div>
-
-    {s.review.rejected > 0 && (
-      <div className="small text-muted mt-2">
-        Rejected bills ({inr(s.review.rejectedAmount)}) are shown in the list
-        but not counted in totals, Excel or the proof document.
-      </div>
-    )}
-
-    {showPreview && (
-      <div className="mt-3">
-        <EmployeeList
-          employees={d.employees}
-          onSelect={setSelId}
-          selectedId={selId}
-        />
-
-        {sel && (
-          <div className="border rounded-3 p-3 mt-2 bg-light">
-            <div className="d-flex justify-content-between align-items-center">
-              <h6>
-                Employee: {sel.name ? `${sel.name} (${sel.email})` : sel.email}
-              </h6>
-              <button
-                className="btn btn-sm"
-                onClick={() => setSelId(null)}
-              >
-                <FiX />
-              </button>
+          return (
+            <div className="row g-3">
+              {cards.map((card) => (
+                <div className="col-6 col-md-4 col-lg-3 col-xl-2" key={card.label}>
+                  <div
+                    className="h-100 p-3"
+                    style={{
+                      background: card.bg,
+                      border: `1px solid ${card.border}`,
+                      borderRadius: '12px',
+                      transition: 'transform 0.2s ease',
+                    }}
+                  >
+                    <div className="small mb-2" style={{ color: card.color }}>
+                      {card.label}
+                    </div>
+                    <div
+                      className="fs-5 fw-bold text-break"
+                      style={{ color: card.color, lineHeight: 1.3 }}
+                    >
+                      {card.value}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
+          );
+        })()}
 
-            <div className="small mb-2">
-              Status: <span className={`badge ${badge(sel.status)}`}>{sel.status}</span>
-              {' · '}Total Bills: {sel.bills}
-              {' · '}Total Amount: {inr(sel.totalAmount)}
-            </div>
+        <div className="d-flex flex-wrap gap-3 mt-3 small align-items-center">
+          <span className="text-muted">Bill review:</span>
 
-            {sel.bills ? (
-              <ExpenseTable
-                expenses={d.expenses.filter(
-                  (expense) => expense.employeeEmail === sel.email
+          {[
+            ['SUBMITTED', s.review.submitted],
+            ['UNDER_REVIEW', s.review.underReview],
+            ['APPROVED', s.review.approved],
+            ['REJECTED', s.review.rejected],
+            ['REIMBURSED', s.review.reimbursed],
+          ].map(([key, value]) => (
+            <span key={key}>
+              <StatusBadge s={key} /> {value}
+            </span>
+          ))}
+
+          {s.review.approved > 0 && (
+            <span className="text-muted">
+              · Awaiting reimbursement:{' '}
+              <strong className="text-dark">{inr(s.review.approvedAmount)}</strong>
+            </span>
+          )}
+        </div>
+
+        {s.review.rejected > 0 && (
+          <div className="small text-muted mt-2">
+            Rejected bills ({inr(s.review.rejectedAmount)}) are shown in the list
+            but not counted in totals, Excel or the proof document.
+          </div>
+        )}
+
+        {showPreview && (
+          <div className="mt-3">
+            <EmployeeList
+              employees={d.employees}
+              onSelect={setSelId}
+              selectedId={selId}
+            />
+
+            {sel && (
+              <div className="border rounded-3 p-3 mt-2 bg-light">
+                <div className="d-flex justify-content-between align-items-center">
+                  <h6>
+                    Employee: {sel.name ? `${sel.name} (${sel.email})` : sel.email}
+                  </h6>
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => setSelId(null)}
+                  >
+                    <FiX />
+                  </button>
+                </div>
+
+                <div className="small mb-2">
+                  Status: <span className={`badge ${badge(sel.status)}`}>{sel.status}</span>
+                  {' · '}Total Bills: {sel.bills}
+                  {' · '}Total Amount: {inr(sel.totalAmount)}
+                </div>
+
+                {sel.bills ? (
+                  <ExpenseTable
+                    expenses={d.expenses.filter(
+                      (expense) => expense.employeeEmail === sel.email
+                    )}
+                    projectId={id}
+                    {...actions}
+                  />
+                ) : (
+                  <p className="text-muted mb-0">
+                    {sel.status === 'No Bill' ? 'No bill submitted.' : 'No response yet.'}
+                  </p>
                 )}
-                projectId={id}
-                {...actions}
-              />
-            ) : (
-              <p className="text-muted mb-0">
-                {sel.status === 'No Bill' ? 'No bill submitted.' : 'No response yet.'}
-              </p>
+              </div>
             )}
           </div>
         )}
       </div>
-    )}
-  </div>
-</div>
+    </div>
 
     <div className="card shadow-sm"><div className="card-body">
       <div className="d-flex flex-wrap justify-content-between align-items-center mb-2"><h6 className="mb-0">Employee Bills</h6>
         <div className="d-flex gap-2">
-          <button className="btn btn-success btn-sm" onClick={() => run(() => openFile(`/projects/${id}/excel`, 'expenses.xlsx'), () => 'Excel downloaded')}><FiDownload /> Download Excel</button>
-          <button className="btn btn-outline-success btn-sm" onClick={() => run(() => openFile(`/projects/${id}/proofs`, 'expense-proofs.pdf'), () => 'Proof document downloaded')}><FiDownload /> Download Proof Document</button></div></div>
+          <button
+            className="btn btn-success btn-sm"
+            disabled={!!dl}
+            onClick={() => downloadWithProgress('excel', 'Excel', `/projects/${id}/excel`, 'expenses.xlsx', 'Excel downloaded')}
+          >
+            {dl?.key === 'excel'
+              ? <><span className="spinner-border spinner-border-sm me-1" /> Downloading…</>
+              : <><FiDownload /> Download Excel</>}
+          </button>
+
+          <button
+            className="btn btn-outline-success btn-sm"
+            disabled={!!dl}
+            onClick={() => downloadWithProgress('proof', 'Proof document', `/projects/${id}/proofs`, 'expense-proofs.pdf', 'Proof document downloaded')}
+          >
+            {dl?.key === 'proof'
+              ? <><span className="spinner-border spinner-border-sm me-1" />
+                  {dl.phase === 'preparing' ? 'Preparing…' : dl.pct != null ? `${dl.pct}%` : 'Downloading…'}</>
+              : <><FiDownload /> Download Proof Document</>}
+          </button>
+        </div>
+      </div>
+
+      {dl && (
+        <div className="mb-3">
+          <div className="small text-muted mb-1">
+            {dl.phase === 'preparing'
+              ? `Preparing ${dl.label}… this can take a while when there are many proofs. Please keep this page open.`
+              : dl.pct != null
+                ? `Downloading ${dl.label}… ${dl.pct}%`
+                : `Downloading ${dl.label}… ${(dl.loaded / 1048576).toFixed(1)} MB`}
+          </div>
+          <div
+            className="progress"
+            style={{ height: 8 }}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={indeterminate ? undefined : dl.pct}
+          >
+            <div
+              className={`progress-bar ${indeterminate ? 'progress-bar-striped progress-bar-animated' : ''}`}
+              style={{ width: indeterminate ? '100%' : `${dl.pct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       <ExpenseFilters f={f} setF={setF} employees={d.employees} shown={shown.length} total={d.expenses.length} />
       <ExpenseTable expenses={shown} projectId={id} {...actions} />
     </div></div>
